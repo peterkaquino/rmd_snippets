@@ -1,0 +1,133 @@
+---
+title: 'CMTH 642 - Assignment #1'
+author: 'Submitted by: AQUINO, PETER'
+output:
+  word_document: default
+---
+
+#1. Read the csv files in the folder. (4 point)
+
+```{r}
+setwd("C:/_Ryerson/CMTH642_DataAnalyticsAdvancedMethods/Assignments/Assign1/")
+usda1 <- read.csv(file="USDA_Macronutrients.csv", header=TRUE, sep=",", na.strings=c("", "NA"), stringsAsFactors = FALSE)
+usda2 <- read.csv(file="USDA_Micronutrients.csv", header=TRUE, sep=",", na.strings=c("", "NA"), stringsAsFactors = FALSE)
+```
+
+#2. Merge the data frames using the variable "ID". Name the Merged Data Frame "USDA". (6 points)
+
+```{r}
+USDA <- merge(usda1,usda2, by = "ID")
+```
+
+#3. Prepare the dataset for analysis. (6 points)
+
+```{r}
+head(USDA)
+tail(USDA)
+str(USDA)
+summary(USDA)
+
+# Check each attribute for NA
+colSums(is.na(USDA))
+
+# Remove comma from values in vectors Sodium, Potassium 
+USDA$Sodium    <- gsub(",", "", USDA$Sodium)
+USDA$Potassium <- gsub(",", "", USDA$Potassium)
+
+# Change type of vectors Sodium, Potassium to integer
+USDA$Sodium <- as.integer(USDA$Sodium)
+USDA$Potassium <- as.integer(USDA$Potassium)
+
+# Check each attribute's class after coercion
+sapply(USDA, class)
+```
+
+#4. Remove records with missing values in 4 or more vectors. (6 points)
+
+```{r}
+USDA <- subset(USDA, rowSums(is.na(USDA)) < 4)
+```
+
+#5. How many records remain in the data frame? (6 points)
+
+```{r}
+nrow(USDA)
+
+# 6,734 records remain in the USDA data frame
+```
+
+#6. For records with missing values for Sugar, Vitamin E and Vitamin D, replace missing values with mean value for the respective vector. (6 points)
+
+```{r}
+USDA$Sugar <- replace(USDA$Sugar, is.na(USDA$Sugar), mean(USDA$Sugar, na.rm = TRUE))
+USDA$VitaminE <- replace(USDA$VitaminE, is.na(USDA$VitaminE), mean(USDA$VitaminE, na.rm = TRUE))
+USDA$VitaminD <- replace(USDA$VitaminD, is.na(USDA$VitaminD), mean(USDA$VitaminD, na.rm = TRUE))
+```
+
+#7. With a single line of code, remove all remaining records with missing values. Name the new Data Frame "USDAclean". (6 points)
+
+```{r}
+USDAclean <- na.omit(USDA)
+```
+
+#8. How many records remain in the data frame? (6 points)
+
+```{r}
+nrow(USDAclean)
+
+# 6,310 records remain in the data frame
+```
+
+#9. Which food has the highest sodium level? (6 points)
+
+```{r}
+USDAclean[which.max(USDAclean$Sodium),c('Description','Sodium')]
+```
+
+#10. Create a scatter plot using Protein and Fat, with the plot title Fat vs Protein, labeling the axes Fat and Protein, and making the data points red. (8 points)
+
+```{r}
+plot(USDAclean$Protein~USDAclean$TotalFat, xlab="Fat", ylab = "Protein", main = "Fat vs Protein", col="red")
+```
+
+#11. Create a histogram of Vitamin C distribution in foods, with a limit of 0 to 100 on the x-axis and breaks of 100. (8 points)
+
+```{r}
+hist(USDAclean$VitaminC, xlim = c(0, 100), breaks = 100, col = "green", main = "Vitamin C Distribution in Foods", xlab = "Vitamin C")
+```
+
+#12. Add a new variable to the data frame that takes value 1 if the food has     higher sodium than average, 0 otherwise. Call this variable HighSodium. (8 points)
+
+```{r}
+USDAclean$HighSodium <- ifelse(USDAclean$Sodium > mean(USDAclean$Sodium),1,0)
+```
+
+#13. Do the same for HighCalories, HighProtein, HighSugar, and HighFat. (8 points)
+
+```{r}
+USDAclean$HighCalories <- ifelse(USDAclean$Calories > mean(USDAclean$Calories),1,0)
+USDAclean$HighProtein <- ifelse(USDAclean$Protein > mean(USDAclean$Protein),1,0)
+USDAclean$HighSugar <- ifelse(USDAclean$Sugar > mean(USDAclean$Sugar),1,0)
+USDAclean$HighFat <- ifelse(USDAclean$TotalFat > mean(USDAclean$TotalFat),1,0)
+```
+
+#14. How many foods have both high sodium and high fat? (8 points)
+
+```{r}
+length(which(USDAclean$HighSodium == 1 & USDAclean$HighFat == 1))
+
+# 644 foods have both high sodium and high fat
+```
+
+#15. Calculate the average amount of iron by high and low protein (i.e. average amount of iron in foods with high protein and average amount of iron in foods with low protein). (8 points)
+
+```{r}
+aggregate(USDAclean$Iron, by = list(Protein_Content = factor(USDAclean$HighProtein, labels = c("Low", "High"))), FUN = mean)
+
+# or 
+
+aggregate(Iron ~ HighProtein, data = USDAclean, FUN = mean)
+```
+
+
+END of Assignment #1.

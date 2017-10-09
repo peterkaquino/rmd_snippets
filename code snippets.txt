@@ -1,0 +1,425 @@
+******************************************************************************************************
+REPORT GENERATION ROUTINE 
+******************************************************************************************************
+
+Private Sub cmdGenerate_Click()
+    'Check if an account was selected
+    If accountSelected Then
+        Me.cmdGenerate.Enabled = False
+        Me.MousePointer = fmMousePointerHourGlass
+        
+        'IO Connection
+        Dim reportCon As New clsIOConnection
+        With reportCon
+            .hostName = Me.cboReportHost.Text
+            .Port = Me.txtReportPort.Text
+            .userID = Me.txtReportUserID
+            .Pwd = Me.txtReportPassword.Value
+        End With
+        
+        'Report parameters
+        Dim reportParameters As New clsReportParams
+        With reportParameters
+            .accountNumber = "TBA"
+            .FromDate = Me.dtpReportFromDate.Value
+            .ToDate = Me.dtpReportTodate.Value
+            .ExcludeShorts = Me.chkExcludeShorts.Value
+            .LiveDate = .FromDate - 1 'THIS WILL BE REPLACED WITH A SPECTRA PULL AS EACH ACCOUNT IS PROCESSED
+        End With
+        
+        Dim akPull As clsIOPulls
+        Dim akDate As Date
+        Dim confirmedToDate As Integer: confirmedToDate = vbOK 'default
+    
+        If confirmedToDate = vbOK Then
+            'Create indexes --> to speed up query
+            Call createIndexes
+                
+            '=============================================
+            '26 Sep 2016 / for use in top up trans routine
+            Call generateStartDateLookupRecordset
+            '=============================================
+            
+            Dim accountIndex As Integer
+            Dim accountNum As String
+            
+            If Me.lstRptAccounts.Selected(0) Then
+                'Generate report all accounts
+                For accountIndex = 1 To Me.lstRptAccounts.ListCount - 1
+                    Me.lstRptAccounts.ListIndex = accountIndex
+                    accountNum = Me.lstRptAccounts.List(accountIndex)
+                    Me.lblReportStatus.Caption = "Processing " & accountNum
+                
+                    '2017.2.0.0 / get AK for this account ==============================================
+                    Set akPull = New clsIOPulls
+                    akDate = akPull.pullAK(reportCon.IOConnex, accountNum)
+                    Set akPull = Nothing
+                    If reportParameters.ToDate > akDate Then
+                        reportParameters.ToDate = akDate
+                        Me.dtpReportTodate = akDate
+                    End If
+                    '===================================================================================
+                    
+                    reportParameters.accountNumber = accountNum
+                    reportParameters.LiveDate = getAccountLiveDate(reportCon.IOConnex, reportParameters)
+                    
+                    '===================================================================================
+                    '26 Sep 2016 / top up transactions up to AK or user specified date+30 whichever is less
+                    Call topUpDBStoredTransactions(reportParameters.accountNumber, reportParameters.ToDate, akDate, reportCon)
+                    '===================================================================================
+                    
+                    Call GenerateSuspendedLossReport(reportCon.IOConnex, reportParameters)
+                Next accountIndex
+            Else
+                'Generate report for each account selected
+                For accountIndex = 1 To Me.lstRptAccounts.ListCount - 1
+                    If Me.lstRptAccounts.Selected(accountIndex) Then
+                        Me.lstRptAccounts.ListIndex = accountIndex
+                        accountNum = Me.lstRptAccounts.List(accountIndex)
+                        Me.lblReportStatus.Caption = "Processing " & accountNum
+                        
+                        '2017.2.0.0 / get AK for this account ==============================================
+                        Set akPull = New clsIOPulls
+                        akDate = akPull.pullAK(reportCon.IOConnex, accountNum)
+                        Set akPull = Nothing
+                        If reportParameters.ToDate > akDate Then
+                            reportParameters.ToDate = akDate
+                            Me.dtpReportTodate = akDate
+                        End If
+                        '===================================================================================
+                        
+                        reportParameters.accountNumber = accountNum
+                        reportParameters.LiveDate = getAccountLiveDate(reportCon.IOConnex, reportParameters)
+                        
+                        '===================================================================================
+                        '26 Sep 2016 / top up transactions up to AK or user specified date whichever is less
+                        Call topUpDBStoredTransactions(reportParameters.accountNumber, reportParameters.ToDate, akDate, reportCon)
+                        '===================================================================================
+                        
+                        Call GenerateSuspendedLossReport(reportCon.IOConnex, reportParameters)
+                    End If
+                Next accountIndex
+            End If
+            
+            Me.MousePointer = fmMousePointerArrow
+            Me.cmdGenerate.Enabled = True
+            Sheets("Main").Select
+            Application.StatusBar = False
+            Set rsStartDateLookup = Nothing
+            Set reportCon = Nothing
+            Me.lblReportStatus.Caption = "Report generation completed."
+            MsgBox "Report generation completed ...", vbInformation, "REPORT DONE"
+        End If
+    Else
+        MsgBox "Please select account(s) to generate report on.", vbExclamation, "NO ACCOUNT SELECTED"
+        Me.lstRptAccounts.SetFocus
+    End If
+End Sub
+
+******************************************************************************************************
+Class Object: clsIOConnection
+******************************************************************************************************
+
+Private pHostName As String
+Private pPort As Integer
+Private pUserID As String
+Private pPwd As String
+Private pIOConnex As Object
+
+Property Let hostName(ByVal pValue As String)
+    pHostName = pValue
+End Property
+
+Property Get hostName() As String
+    hostName = pHostName
+End Property
+
+Property Let Port(ByVal pValue As Integer)
+    pPort = pValue
+End Property
+
+Property Get Port() As Integer
+    Port = pPort
+End Property
+
+Property Let userID(ByVal pValue As String)
+    pUserID = pValue
+End Property
+
+Property Get userID() As String
+    userID = pUserID
+End Property
+
+Property Let Pwd(ByVal pValue As String) 'must only be defined / not retrieved
+    pPwd = pValue
+End Property
+
+Property Get IOConnex() As Object
+    Set pIOConnex = Nothing
+    Set pIOConnex = CreateObject("SunGard.IOConnection")
+    pIOConnex.CommType = "IP"
+    pIOConnex.hostIP = pHostName
+    pIOConnex.Port = pPort
+    
+    pIOConnex.userID = pUserID
+    pIOConnex.Operator = pUserID
+    pIOConnex.Password = pPwd
+    
+    Set IOConnex = pIOConnex
+End Property
+
+******************************************************************************************************
+Class Object: clsTransPull
+******************************************************************************************************
+
+Private pFromDate As Date
+Private pToDate As Date
+Private pAccount As String
+Private pRegion As String
+
+Property Let FromDate(ByVal pValue As Date)
+    pFromDate = pValue
+End Property
+
+Property Get FromDate() As Date
+    FromDate = pFromDate
+End Property
+
+Property Let ToDate(ByVal pValue As Date)
+    pToDate = pValue
+End Property
+
+Property Get ToDate() As Date
+    ToDate = pToDate
+End Property
+
+Property Let account(ByVal pValue As String)
+    pAccount = pValue
+End Property
+
+Property Get account() As String
+    account = pAccount
+End Property
+
+Property Let region(ByVal pValue As String)
+    pRegion = pValue
+End Property
+
+Property Get region() As String
+    region = pRegion
+End Property
+
+Public Function pullTransactions(ByRef ioCon As Object) As String
+    Dim retVal As String: retVal = ""
+    Dim RQ As Object
+    Set RQ = ioCon.CreateTranRequest
+    RQ.account = pAccount
+    RQ.FromDate = pFromDate
+    RQ.ToDate = pToDate
+    RQ.DateType = "E"
+    RQ.Positions = "N"
+    
+    'Fields
+    RQ.AddItem "CU"
+    RQ.AddItem "SU"
+    RQ.AddItem "ED"
+    RQ.AddItem "CD"
+    RQ.AddItem "CV"
+    RQ.AddItem "G8"
+    RQ.AddItem "BO"
+    RQ.AddItem "GB"
+    RQ.AddItem "TO"
+    RQ.AddItem "TB"
+    
+    'Filters
+    If modMisc.fundRegion = "TP" Then
+        RQ.addfilter "AG", "=", "B:S:FS:PR:W:G:MF"
+        RQ.addfilter "CD", "!", "DIVD:DIVD+:DIVD-:INT:INT +:INT -:RGAIN:RLOSS:WEXP:WEXP+:WEXP-:SELLIK:BUYIK" 'this should cover ETREC:ETDEL since these trans codes are not excluded in this filter (CD!)
+        RQ.addfilter "CV", "!", "0"
+        RQ.addfilter "TB", "!", "03"
+    ElseIf modMisc.fundRegion = "C5" Then
+        RQ.addfilter "CV", "!", "0"
+        ''''RQ.addfilter "GB", "<", "-10"    'loss limit (this filter is only for Sales)
+        RQ.addfilter "AG", "!", "c#:XX:MM:TI:TD:BA"
+        RQ.addfilter "TB", "!", "02:8888888:111111:0009992"
+        RQ.addfilter "RV", "=", "0"
+        RQ.addfilter "CD", "=", "SELL:RBSELL:COVER:RBCOVR:BUY:RBBUY:SHORT:RBSHRT:ETREC:ETDEL" 'added :ETREC:ETDEL as part of CD= filter
+        RQ.addfilter "SN", "!", "MARG###:CONV#####"
+    End If
+    
+    'Process
+    RQ.Start
+    RQ.MoveNext
+    If Not RQ.EOF Then
+        '''retVal = True
+        Dim QTE As String: QTE = """"
+        Dim transRec As String: transRec = ""
+        Dim fSysObj As New FileSystemObject
+        Dim outFile As TextStream
+        Dim tempVal As String
+        
+        retVal = ThisWorkbook.Path & "\dat"
+        If Not fSysObj.FolderExists(retVal) Then
+            fSysObj.CreateFolder (retVal)
+        End If
+        'retVal = retVal & "\Txn_" & pAccount & ".dat" 'DATA FILE FOR BULK INSERT
+        retVal = retVal & "\Txn_" & pAccount & ".sql"  'SCRIPT FILE FOR SINGLE INSERT
+        Set outFile = fSysObj.CreateTextFile(retVal, True)
+       
+        Do While Not RQ.EOF
+            'transRec = buildDATstring(rq) 'DATA FILE FOR BULK INSERT
+            transRec = buildSQLstring(RQ) 'SCRIPT FILE FOR SINGLE INSERT
+            outFile.WriteLine (transRec)
+            RQ.MoveNext
+        Loop
+        Set outFile = Nothing
+        Set fSysObj = Nothing
+    End If
+    pullTransactions = retVal
+End Function
+
+Private Function buildDATstring(ByRef rqREC As Object) As String
+    Dim retVal As String: retVal = ""
+    Dim QTE As String: QTE = """"
+    Dim tempVal As String: tempVal = ""
+    With rqREC
+        retVal = QTE & pRegion & QTE & ","
+        retVal = retVal & QTE & pAccount & QTE & ","
+        retVal = retVal & QTE & .itemvalue("CU") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("SU") & QTE & ","
+        tempVal = Format$(DateSerial(Mid(.itemvalue("ED"), 1, 4), Mid(.itemvalue("ED"), 5, 2), Mid(.itemvalue("ED"), 7, 2)), "mm/dd/yyyy")
+        retVal = retVal & QTE & tempVal & QTE & ","
+        retVal = retVal & QTE & .itemvalue("CD") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("CV") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("G8") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("BO") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("GB") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("TO") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("TB") & QTE
+    End With
+    buildDATstring = retVal
+End Function
+
+Private Function buildSQLstring(ByRef rqREC As Object) As String
+    Dim retVal As String: retVal = ""
+    Dim QTE As String: QTE = "'"
+    Dim tempVal As String: tempVal = ""
+    With rqREC
+        retVal = QTE & pRegion & QTE & ","
+        retVal = retVal & QTE & pAccount & QTE & ","
+        retVal = retVal & QTE & .itemvalue("CU") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("SU") & QTE & ","
+        tempVal = Format$(DateSerial(Mid(.itemvalue("ED"), 1, 4), Mid(.itemvalue("ED"), 5, 2), Mid(.itemvalue("ED"), 7, 2)), "mm/dd/yyyy")
+        retVal = retVal & QTE & tempVal & QTE & ","
+        retVal = retVal & QTE & .itemvalue("CD") & QTE & ","
+        retVal = retVal & .itemvalue("CV") & ","
+        retVal = retVal & .itemvalue("G8") & ","
+        retVal = retVal & .itemvalue("BO") & ","
+        retVal = retVal & .itemvalue("GB") & ","
+        retVal = retVal & QTE & .itemvalue("TO") & QTE & ","
+        retVal = retVal & QTE & .itemvalue("TB") & QTE
+    End With
+    buildSQLstring = "INSERT INTO SL03_TRANSACTIONS VALUES (" & retVal & ")"
+End Function
+
+
+******************************************************************************************************
+Class Object: clsDBConnection
+******************************************************************************************************
+
+Private pDBConnection As ADODB.Connection
+
+Property Get DBConnection() As Object
+    Set pDBConnection = Nothing
+    Set pDBConnection = New ADODB.Connection
+    Dim dataProvider As String: dataProvider = modMisc.getDBConnectionParamValue("provider")     'modXML.getXMLNode("provider")  '--->parameters moved to Params sheet to centralize all config within this module / 18 Aug 2016/paquino
+    Dim dataSrc As String: dataSrc = modMisc.getDBConnectionParamValue("datasource")             'modXML.getXMLNode("datasource")
+    Dim initialCat As String: initialCat = modMisc.getDBConnectionParamValue("initialcatalog")   'modXML.getXMLNode("initialcatalog")
+    
+    With pDBConnection
+        .provider = dataProvider
+        .Properties("Data Source").Value = dataSrc
+        .Properties("Initial Catalog").Value = initialCat
+        .Properties("Integrated Security").Value = "SSPI"
+        .CommandTimeout = 10
+        .CursorLocation = adUseClient
+        .Open
+    End With
+    
+    Set DBConnection = pDBConnection
+End Property
+
+******************************************************************************************************
+Class Object: clsDBPulls
+******************************************************************************************************
+
+Public Function getPeriodTransactions(ByRef dbCon As ADODB.Connection, ByVal thisParams As clsReportParams) As ADODB.Recordset
+    Dim transCodeFilter As String: transCodeFilter = "'SHORT', 'COVER', 'RSHORT', 'RCOVER', 'RBCOVR'"
+    Dim sQRY As String: sQRY = "SELECT * FROM SL03_TRANSACTIONS "
+    'Region filter
+    sQRY = sQRY & " WHERE regionID = '" & modMisc.fundRegion & "'"
+    'Account filter
+    sQRY = sQRY & " AND accountNumber = '" & thisParams.accountNumber & "'"
+    
+    'Gluskin Tran Codes To Exclude --> SHORT:COVER:RSHORT:RCOVER:RBCOVR
+    If thisParams.ExcludeShorts Then
+        'Trans code filter
+        sQRY = sQRY & " AND transCode NOT IN (" & transCodeFilter & ")"
+    End If
+    
+    'Date filter
+    sQRY = sQRY & " AND effectiveDate >= '" & thisParams.FromDate & "' AND effectiveDate <= '" & thisParams.ToDate & "'"
+    
+    Dim requestData As ADODB.Recordset
+    Set requestData = dbCon.Execute(sQRY)
+    
+    Set getPeriodTransactions = requestData
+End Function
+
+Public Function getRNSRecords(ByRef dbCon As ADODB.Connection) As ADODB.Recordset
+    Dim sQRY As String: sQRY = "SELECT SearchKey = oldCUSIP + oldQualifier, * FROM SL01_RENUMBERED_SECURITIES WHERE regionID = '" & modMisc.fundRegion & "' order by effectiveDate desc, oldCUSIP asc, oldQualifier asc"
+    
+    Dim requestData As ADODB.Recordset
+    Set requestData = dbCon.Execute(sQRY)
+    Set getRNSRecords = requestData
+End Function
+
+Public Function getRNSLookUp(ByRef dbCon As ADODB.Connection, ByVal targetRegion As String) As ADODB.Recordset
+    Dim sQRY As String: sQRY = "SELECT SearchKey = convert(varchar(10),effectiveDate,101) + oldCUSIP + oldQualifier + newCUSIP + newQualifier FROM SL01_RENUMBERED_SECURITIES WHERE regionID = '" & targetRegion & "' order by effectiveDate asc, oldCUSIP asc, oldQualifier asc"
+    
+    Dim requestData As ADODB.Recordset
+    Set requestData = dbCon.Execute(sQRY)
+    Set getRNSLookUp = requestData
+End Function
+
+Public Function getBFSuspendedLosses(ByRef dbCon As ADODB.Connection, ByVal thisParams As clsReportParams) As ADODB.Recordset
+    Dim sQRY As String: sQRY = "SELECT * FROM SL02_ACCOUNTS WHERE regionID = '" & modMisc.fundRegion & "' AND accountNumber ='" & thisParams.accountNumber & "'"
+    Dim requestData As ADODB.Recordset
+    Set requestData = dbCon.Execute(sQRY)
+    
+    'Include group account / tax account when pulling data
+    Dim accountFilter As String: accountFilter = ""
+    With requestData
+        If Not .BOF And Not .EOF Then
+            'group account
+            accountFilter = "'" & Trim(.Fields("groupAccount").Value) & "'"
+            'account number
+            accountFilter = accountFilter & ",'" & thisParams.accountNumber & "'"
+            'tax account
+            If Trim(.Fields("taxAccount").Value) <> "" Then
+                accountFilter = accountFilter & ",'" & Trim(.Fields("taxAccount").Value) & "'"
+            End If
+        End If
+    End With
+    
+    'Pull BF
+    '...default -- using account number only
+    sQRY = "SELECT * FROM SL05_SUSPENDED_LOSSES WHERE regionID = '" & modMisc.fundRegion & "' AND accountNumber ='" & thisParams.accountNumber & "' order by securityNumber, deferralYear"
+    '...using group account/account #/tax account for filter
+    If accountFilter <> "" Then
+        sQRY = "SELECT * FROM SL05_SUSPENDED_LOSSES WHERE regionID = '" & modMisc.fundRegion & "' AND accountNumber in (" & accountFilter & ") order by securityNumber, deferralYear"
+    End If
+    Set requestData = dbCon.Execute(sQRY)
+    
+    Set getBFSuspendedLosses = requestData
+End Function

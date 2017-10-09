@@ -1,0 +1,104 @@
+---
+title: 'CMTH 642 - Assignment #2'
+author: 'Submitted by: AQUINO, PETER'
+output:
+  word_document: default
+---
+
+CMTH 642: Advance Methods
+Assignment 2
+Read the clean csv file you provided in the first assignment (USDAclean_[your last name]). 
+When you finalize your answers, please save your Rmd file as R_[your last name], 
+save your final data frame as USDAclean_[your last name], and send both files to the assignments folder in D2L.
+
+```{r}
+setwd("C:/_Ryerson/CMTH642_DataAnalyticsAdvancedMethods/Assignments/Assign2/")
+usda <- read.csv(file="USDAclean_Aquino.csv", header=TRUE, sep=",", na.strings=c("", "NA"), stringsAsFactors = FALSE)
+```
+
+#1. Create a visualization to illustrate the distribution of values for Total Fat, Protein and Carbohydrate. (12 p)
+
+```{r}
+#Total Fat 
+hist.fat <- hist(usda$TotalFat, col = "light green", main = "Total Fat Distribution in Foods", xlab = "Total Fat")
+mult.fat <- hist.fat$counts / hist.fat$density
+dense.fat <- density(usda$TotalFat)
+dense.fat$y <- dense.fat$y * mult.fat[1]
+lines(dense.fat, col = "brown", lwd=2)
+
+#Protein
+hist.prot <- hist(usda$Protein, col = "light blue", main = "Protein Distribution in Foods", xlab = "Protein")
+mult.prot <- hist.prot$counts / hist.prot$density
+dense.prot <- density(usda$Protein)
+dense.prot$y <- dense.prot$y * mult.prot[1]
+lines(dense.prot, col = "dark blue", lwd=2)
+
+#Carbohydrate
+hist.carb <- hist(usda$Carbohydrate, col = "grey", main = "Carbohydrate Distribution in Foods", xlab = "Carbohydrate")
+mult.carb <- hist.carb$counts / hist.carb$density
+dense.carb <- density(usda$Carbohydrate)
+dense.carb$y <- dense.carb$y * mult.carb[1]
+lines(dense.carb, col = "black", lwd=2)
+```
+
+#2. Create a visualization to illustrate the relationship between a food's Total Fat content and its calorie content. (12 p)
+
+```{r}
+plot(usda$Calories~usda$TotalFat, col= "blue", xlab = "Total Fat Content", ylab = "Calorie Content", main = "Calorie vs Total Fat")
+
+abline(lm(Calories~TotalFat, data = usda), col = "red", lty = 6, lwd = 2) 
+```
+
+#3. Create a logistic regression model, using High Calories as the dependent variable, and Carbohydrate, Protein, Total Fat and Sodium as independent variables. (16 p)
+
+```{r}
+# HighCalories~Carbohydrate+Protein+TotalFat+Sodium
+hc.glm <- glm(HighCalories~Carbohydrate + Protein + TotalFat + Sodium, data = usda, family = binomial("logit"))
+
+summary(hc.glm)
+```
+
+#4. Which independent variable is not significant? (10 p)
+
+```{r}
+#Sodium is not significant @ odds ratio = -6.051e-05. As well, p-value of 0.381 indicates that Sodium as a predictor variable has insignificant effect to HighCalories.
+```
+
+#5. Which independent variable has the strongest positive predictive power in the model? (10 p)
+
+```{r}
+#Total fat has the strongest positive predictive power @ odds ratio = 6.465e-01
+```
+
+#6. Create a script for a HealthCheck function to detect unhealthy foods. Foods that are high in salt, sugar and fat fail the HealthCheck, while all other foods pass. Foods that pass the HealthCheck should be assigned a 1, while foods that fail should be assigned a 0. Use the algorithm flowchart below as a basis for this script. (20 p)
+
+```{r}
+health.check <- function(df){
+  return(ifelse((df$HighSodium == 1 & df$HighSugar == 1 & df$HighFat == 1), 0, 1))
+ }
+```
+
+#7. Add a new column called HealthCheck to the USDAclean data frame using the output of the function. (10 p)
+
+```{r}
+usda$HealthCheck <- health.check(usda)
+```
+
+#8. How many foods in the USDAclean data frame fail the HealthCheck? (10 p)
+
+```{r}
+sum(usda$HealthCheck == 0) #alternative: nrow(usda[which(usda$HealthCheck == 0),])
+
+# 237 foods fail the HealthCheck, i.e. HealthCheck = 0
+
+```
+
+# Save your final data frame as USDAclean_[your last name]
+```{r}
+write.csv(usda, file = "USDAclean_Aquino2.csv", row.names = FALSE)
+```
+
+
+
+
+END of Assignment #2.

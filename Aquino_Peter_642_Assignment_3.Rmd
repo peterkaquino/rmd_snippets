@@ -1,0 +1,142 @@
+---
+title:  'CMTH 642 - Assignment #3'
+author: 'Submitted by: AQUINO, PETER'
+output:
+  word_document: default
+---
+
+
+Preparation:
+The dataset is related to white Portuguese "Vinho Verde" wine. For more info: https://archive.ics.uci.edu/ml/datasets/Wine+Quality
+Import to R the following file:
+```{r}
+source.file <- "http://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv"
+
+wine <- read.csv(file=source.file, header=TRUE, sep=";", na.strings=c("", "NA"), stringsAsFactors = FALSE)
+```
+
+##TASKS
+#1. Check data characteristics. Is there missing data? Prepare the data for analysis.
+
+```{r}
+colSums(is.na(wine)) # there are no missing data
+head(wine)
+tail(wine)
+str(wine)
+summary(wine)
+```
+
+#2. What is the correlation between the attributes other than wine quality?
+
+```{r}
+#install.packages("corrplot")
+library(corrplot)
+wine.cor.matrix <- cor(wine[,-length(wine)])
+wine.cor.matrix
+corrplot(wine.cor.matrix, method="circle")
+```
+
+
+
+#Based on the above correlation matrix, the following attributes are highly correlated:
+- residual.sugar / density
+- density / alcohol
+
+#, while the following attributes have a strong correlation:
+- fixed.acidity / pH
+- residual.sugar / alcohol
+- free.sulfur.dioxide / total.sulfur.dioxide
+- total.sulfur.dioxide / density 
+- total.sulfur.dioxide / alcohol 
+
+
+#Further analysis: Principal Component Analysis
+```{r}
+wine.pca <- princomp(wine[,-length(wine)], cor = TRUE, score = TRUE)
+summary(wine.pca)
+#eigen(cor(wine))
+#eigen(cor(wine))$values/11
+plot(wine.pca, type="lines", main = "Scree Plot for Wine Data")
+biplot(wine.pca, main = "Biplot for Wine Data")
+```
+ 
+#3. Graph the frequency distribution of wine quality.
+
+```{r}
+hist(wine$quality, xlab = "Wine Quality", main = "Wine Quality Frequency Distribution", col = "grey")
+```
+
+#4. Reduce the levels of rating for quality to three levels as high, medium and low.
+
+```{r}
+#Qualty levels: low=3-5, medium=6-7, high=8-9
+#Following creates another column to store these 3 quality levels
+wine$qlevel <- cut(wine$quality, breaks = 3, labels = c("low","medium","high"))
+```
+
+#5. Normalize the data set.
+
+```{r}
+#The following min-max normalization function will be applied to all attributes except quality and qlevel
+
+norm.attrib <- function(target.attrib) {
+    return ((target.attrib - min(target.attrib)) / (max(target.attrib) - min(target.attrib)))
+}
+
+wine.norm <- as.data.frame(lapply(wine[1:11], norm.attrib))
+
+# Re-instate quality levels to the normalized dataset
+wine.norm$qlevel <- as.factor(wine$qlevel)
+```
+
+#6. Divide the data to training and testing groups.
+
+```{r}
+library(caret)
+#set.seed(888)
+train.set.index <- createDataPartition(wine.norm$qlevel, p=0.70, list=FALSE)
+train.set <- wine.norm[train.set.index, ]
+test.set <- wine.norm[-train.set.index, ]
+```
+
+#7. Use the kNN algorithm to predict the quality of wine using its attributes.
+
+```{r}
+#Evaluate different k values
+train.ctl <- trainControl(method="repeatedcv", repeats=3)
+kValues <- train(qlevel~., data = train.set, method="knn", trControl=train.ctl, tuneLength=10)
+kValues
+
+#Get the optimal k to be used in the kNN algorithm
+kresults <- as.list(kValues)
+kresults <- as.data.frame(kresults$results)
+kbest <- kresults[which.max(kresults$Accuracy),c('k')]
+kbest
+
+#Run kNN algorithm with k = kbest
+library(class)
+wine.knn <- knn(train.set[, -12], test.set[, -12], cl = train.set$qlevel, k = kbest)
+```
+
+#8. Evaluate the model performance.
+
+```{r}
+#install.packages('e1071')
+library(e1071)
+confusionMatrix(test.set$qlevel,wine.knn)
+```
+
+# Alternatively, run kNN for each k value and display each model performance
+```{r}
+k.values <- c(kresults[, 1])
+
+for (kval in k.values) { 
+  print(paste('>>>>> k = ', kval))
+  wine.knn <- knn(train.set[, -12], test.set[, -12], cl = train.set$qlevel, k = kval)
+  print(confusionMatrix(test.set$qlevel,wine.knn))
+  print('<<<<<<<<<<<<<<<<<<<')
+}
+```
+
+
+END of Assignment #3.
